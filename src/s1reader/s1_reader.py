@@ -6,6 +6,7 @@ import zipfile
 
 from packaging import version
 from types import SimpleNamespace
+from typing import Iterable, Optional
 
 import isce3
 import numpy as np
@@ -13,13 +14,17 @@ import shapely
 
 from nisar.workflows.stage_dem import check_dateline
 from s1reader.s1_burst_slc import Doppler, Sentinel1BurstSlc
+from s1reader.s1_orbit import get_orbit_file_from_dir
 from s1reader import s1_annotation
 
 
 esa_track_burst_id_file = f"{os.path.dirname(os.path.realpath(__file__))}/data/sentinel1_track_burst_id.txt"
 
 
-def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
+def load_bursts(path: str,
+                orbit_path: Optional[str],
+                swath_num: int | Iterable[str] = (1, 2, 3),
+                pol: str='vv',
                 burst_ids: list[str]=None):
     '''Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
 
@@ -28,9 +33,10 @@ def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
     path : str
         Path to Sentinel-1 zip file or SAFE directory
     orbit_path : str
-        Path the orbit file.
-    swath_num : int
-        Integer of subswath of desired burst. {1, 2, 3}
+        Path to the orbit file for the Sentinel-1 scene, or
+        a directory holding the orbit files.
+    swath_num : int or Iterable[int]
+        Integer(s) of subswath of desired burst. {1, 2, 3}
     pol : str
         Polarization of desired burst. {hh, vv, hv, vh}
     burst_ids : list[str]
@@ -44,6 +50,17 @@ def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
     bursts : list
         List of Sentinel1BurstSlc objects found in annotation XML.
     '''
+    try:
+        # If the swath_num is an iterable of swaths, load all bursts from each swath
+        swath_nums = [int(x) for x in swath_num]
+        return [
+            load_bursts(path, orbit_path, swath_num, pol=pol, burst_ids=burst_ids)
+            for swath_num in swath_nums
+        ]
+    except TypeError:
+        # Single integer passed, continue
+        pass
+
     if swath_num < 1 or swath_num > 3:
         raise ValueError("swath_num not <1 or >3")
 
@@ -53,6 +70,10 @@ def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
     # ensure burst IDs is a list
     if not isinstance(burst_ids, list):
         burst_ids = [burst_ids]
+
+    # If a directory holding many orbits is passed, find the one for this scene
+    if os.path.isdir(orbit_path):
+        orbit_path = get_orbit_file_from_dir(path, orbit_path)
 
     # lower case polarity to be consistent with file naming convention
     pol = pol.lower()
