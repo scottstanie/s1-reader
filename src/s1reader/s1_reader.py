@@ -18,6 +18,77 @@ from s1reader import s1_annotation
 
 esa_track_burst_id_file = f"{os.path.dirname(os.path.realpath(__file__))}/data/sentinel1_track_burst_id.txt"
 
+
+def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
+                burst_ids: list[str]=None):
+    '''Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
+
+    Parameters:
+    -----------
+    path : str
+        Path to Sentinel-1 zip file or SAFE directory
+    orbit_path : str
+        Path the orbit file.
+    swath_num : int
+        Integer of subswath of desired burst. {1, 2, 3}
+    pol : str
+        Polarization of desired burst. {hh, vv, hv, vh}
+    burst_ids : list[str]
+        List of burst IDs for which their Sentinel1BurstSlc objects will be
+        returned. Default of None returns all bursts. Empty list returned if
+        none of the burst IDs are found. If not all burst IDs are found, a list
+        containing found bursts will be returned.
+
+    Returns:
+    --------
+    bursts : list
+        List of Sentinel1BurstSlc objects found in annotation XML.
+    '''
+    if swath_num < 1 or swath_num > 3:
+        raise ValueError("swath_num not <1 or >3")
+
+    if burst_ids is None:
+        burst_ids = []
+
+    # ensure burst IDs is a list
+    if not isinstance(burst_ids, list):
+        burst_ids = [burst_ids]
+
+    # lower case polarity to be consistent with file naming convention
+    pol = pol.lower()
+    pols = ['vv', 'vh', 'hh', 'hv']
+    if pol not in pols:
+        raise ValueError(f"polarization not in {pols}")
+
+    id_str = f'iw{swath_num}-slc-{pol}'
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f'{path} not found')
+    elif os.path.isdir(path):
+        bursts = _burst_from_safe_dir(path, id_str, orbit_path)
+    elif os.path.isfile(path):
+        bursts = _burst_from_zip(path, id_str, orbit_path)
+    else:
+        raise ValueError(f'{path} is unsupported')
+
+    if burst_ids:
+        bursts = [b for b in bursts if b.burst_id in burst_ids]
+
+        burst_ids_found = set([b.burst_id for b in bursts])
+
+        warnings.simplefilter("always")
+        set_burst_ids = set(burst_ids)
+        if not burst_ids_found:
+            warnings.warn("None of provided burst IDs found in sub-swath {swath_num}")
+        elif burst_ids_found != set_burst_ids:
+            diff = set_burst_ids.difference(burst_ids_found)
+            warn_str = 'Not all burst IDs found. \n '
+            warn_str += f'Not found: {diff} . \n'
+            warn_str += f'Found bursts: {burst_ids_found}'
+            warnings.warn(warn_str)
+
+    return bursts
+
 # TODO evaluate if it make sense to combine below into a class
 def as_datetime(t_str, fmt = "%Y-%m-%dT%H:%M:%S.%f"):
     '''Parse given time string to datetime.datetime object.
@@ -533,76 +604,6 @@ def _is_zip_annotation_xml(path: str, id_str: str) -> bool:
     if tokens[-2] == 'annotation' and id_str in tokens[-1]:
         return True
     return False
-
-def load_bursts(path: str, orbit_path: str, swath_num: int, pol: str='vv',
-                burst_ids: list[str]=None):
-    '''Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
-
-    Parameters:
-    -----------
-    path : str
-        Path to Sentinel-1 zip file or SAFE directory
-    orbit_path : str
-        Path the orbit file.
-    swath_num : int
-        Integer of subswath of desired burst. {1, 2, 3}
-    pol : str
-        Polarization of desired burst. {hh, vv, hv, vh}
-    burst_ids : list[str]
-        List of burst IDs for which their Sentinel1BurstSlc objects will be
-        returned. Default of None returns all bursts. Empty list returned if
-        none of the burst IDs are found. If not all burst IDs are found, a list
-        containing found bursts will be returned.
-
-    Returns:
-    --------
-    bursts : list
-        List of Sentinel1BurstSlc objects found in annotation XML.
-    '''
-    if swath_num < 1 or swath_num > 3:
-        raise ValueError("swath_num not <1 or >3")
-
-    if burst_ids is None:
-        burst_ids = []
-
-    # ensure burst IDs is a list
-    if not isinstance(burst_ids, list):
-        burst_ids = [burst_ids]
-
-    # lower case polarity to be consistent with file naming convention
-    pol = pol.lower()
-    pols = ['vv', 'vh', 'hh', 'hv']
-    if pol not in pols:
-        raise ValueError(f"polarization not in {pols}")
-
-    id_str = f'iw{swath_num}-slc-{pol}'
-
-    if not os.path.exists(path):
-        raise FileNotFoundError(f'{path} not found')
-    elif os.path.isdir(path):
-        bursts = _burst_from_safe_dir(path, id_str, orbit_path)
-    elif os.path.isfile(path):
-        bursts = _burst_from_zip(path, id_str, orbit_path)
-    else:
-        raise ValueError(f'{path} is unsupported')
-
-    if burst_ids:
-        bursts = [b for b in bursts if b.burst_id in burst_ids]
-
-        burst_ids_found = set([b.burst_id for b in bursts])
-
-        warnings.simplefilter("always")
-        set_burst_ids = set(burst_ids)
-        if not burst_ids_found:
-            warnings.warn("None of provided burst IDs found in sub-swath {swath_num}")
-        elif burst_ids_found != set_burst_ids:
-            diff = set_burst_ids.difference(burst_ids_found)
-            warn_str = 'Not all burst IDs found. \n '
-            warn_str += f'Not found: {diff} . \n'
-            warn_str += f'Found bursts: {burst_ids_found}'
-            warnings.warn(warn_str)
-
-    return bursts
 
 
 def _burst_from_zip(zip_path: str, id_str: str, orbit_path: str):
