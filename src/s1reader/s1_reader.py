@@ -25,7 +25,8 @@ def load_bursts(path: str,
                 orbit_path: Optional[str],
                 swath_num: int | Iterable[str] = (1, 2, 3),
                 pol: str='vv',
-                burst_ids: list[str]=None):
+                burst_ids: list[str]=None,
+                auto_download: bool=False):
     '''Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
 
     Parameters:
@@ -44,6 +45,9 @@ def load_bursts(path: str,
         returned. Default of None returns all bursts. Empty list returned if
         none of the burst IDs are found. If not all burst IDs are found, a list
         containing found bursts will be returned.
+    auto_download : bool
+        If True, automatically download orbit file if not found in orbit_path.
+        Default is False.
 
     Returns:
     --------
@@ -54,8 +58,14 @@ def load_bursts(path: str,
         # If the swath_num is an iterable of swaths, load all bursts from each swath
         swath_nums = [int(x) for x in swath_num]
         return [
-            load_bursts(path, orbit_path, swath_num, pol=pol, burst_ids=burst_ids)
-            for swath_num in swath_nums
+            load_bursts(
+                path, 
+                orbit_path, 
+                swath_num, 
+                pol=pol, 
+                burst_ids=burst_ids,
+                auto_download=auto_download,
+            ) for swath_num in swath_nums
         ]
     except TypeError:
         # Single integer passed, continue
@@ -73,7 +83,10 @@ def load_bursts(path: str,
 
     # If a directory holding many orbits is passed, find the one for this scene
     if os.path.isdir(orbit_path):
-        orbit_path = get_orbit_file_from_dir(path, orbit_path)
+        print(f"Searching for orbit file in {orbit_path} with {auto_download = }")
+        orbit_path = get_orbit_file_from_dir(
+            path, orbit_path, auto_download=auto_download
+        )
 
     # lower case polarity to be consistent with file naming convention
     pol = pol.lower()
