@@ -565,9 +565,9 @@ def _is_zip_annotation_xml(path: str, id_str: str) -> bool:
 def load_bursts(path: str,
                 orbit_path: Optional[str],
                 swath_num: int | Iterable[str] = (1, 2, 3),
-                pol: str='vv',
-                burst_ids: list[str]=None,
-                auto_download: bool=False):
+                pol: str = 'vv',
+                burst_ids: list[str] = None,
+                auto_download: bool = True):
     '''Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
 
     Parameters:
