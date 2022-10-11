@@ -20,8 +20,6 @@ from s1reader import s1_annotation
 
 esa_track_burst_id_file = f"{os.path.dirname(os.path.realpath(__file__))}/data/sentinel1_track_burst_id.txt"
 
-
-
 # TODO evaluate if it make sense to combine below into a class
 def as_datetime(t_str, fmt = "%Y-%m-%dT%H:%M:%S.%f"):
     '''Parse given time string to datetime.datetime object.
