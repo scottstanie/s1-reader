@@ -600,10 +600,10 @@ def load_bursts(path: str,
         swath_nums = [int(x) for x in swath_num]
         return [
             load_bursts(
-                path, 
-                orbit_path, 
-                swath_num, 
-                pol=pol, 
+                path,
+                orbit_path,
+                swath_num,
+                pol=pol,
                 burst_ids=burst_ids,
                 auto_download=auto_download,
             ) for swath_num in swath_nums
