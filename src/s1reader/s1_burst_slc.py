@@ -79,14 +79,12 @@ def polyfit(xin, yin, zin, azimuth_order, range_order,
         A = A / snr[:, None]
         z = z / snr
 
-    return_val = True
-    val, res, _, eigs = np.linalg.lstsq(A, z, rcond=cond)
+    val, res, _, _ = np.linalg.lstsq(A, z, rcond=cond)
     if len(res) > 0:
         print('Chi squared: %f' % (np.sqrt(res / (1.0 * len(z)))))
     else:
         print('No chi squared value....')
         print('Try reducing rank of polynomial.')
-        return_val = False
 
     coeffs = []
     count = 0
@@ -288,7 +286,7 @@ class Sentinel1BurstSlc:
     def get_az_carrier_poly(self, offset=0.0, xstep=500, ystep=50,
                             az_order=5, rg_order=3, index_as_coord=False):
         """
-        Estimate burst azimuth carrier polymonials
+        Estimate burst azimuth carrier polynomials
         Parameters
         ----------
         offset: float
@@ -410,7 +408,7 @@ class Sentinel1BurstSlc:
         as described in equation (21) in Gisinger et al. (2021, TGRS).
 
         References
-        -------
+        ----------
         Gisinger, C., Schubert, A., Breit, H., Garthwaite, M., Balss, U., Willberg, M., et al.
           (2021). In-Depth Verification of Sentinel-1 and TerraSAR-X Geolocation Accuracy Using
           the Australian Corner Reflector Array. IEEE Trans. Geosci. Remote Sens., 59(2), 1154-
@@ -420,7 +418,7 @@ class Sentinel1BurstSlc:
           Document.pdf
 
         Parameters
-        -------
+        ----------
         xstep : int
            spacing along x direction (range direction) in units of pixels
 
@@ -430,7 +428,7 @@ class Sentinel1BurstSlc:
         Returns
         -------
            LUT2D object of bistatic delay correction in seconds as a function
-           of the range and zimuth indices. This correction needs to be added
+           of the range and azimuth indices. This correction needs to be added
            to the SLC tagged azimuth time to get the corrected azimuth times.
         '''
 
@@ -463,7 +461,7 @@ class Sentinel1BurstSlc:
         Compute total Doppler which is the sum of two components:
         (1) the geometrical Doppler induced by the relative movement
         of the sensor and target
-        (2) the TOPS specicifc Doppler caused by the electric steering
+        (2) the TOPS specific Doppler caused by the electric steering
         of the beam along the azimuth direction resulting in Doppler varying
         with azimuth time.
         Parameters
@@ -526,7 +524,7 @@ class Sentinel1BurstSlc:
 
     def az_carrier_components(self, offset, position):
         '''
-        Estimate azimuth carrier and store in numpy arrary. Also return
+        Estimate azimuth carrier and store in numpy array. Also return
         contributing components.
 
         Parameters
@@ -541,7 +539,7 @@ class Sentinel1BurstSlc:
         eta: float
             zero-Doppler azimuth time centered in the middle of the burst
         eta_ref: float
-            refernce time
+            reference time
         kt: np.ndarray
             Doppler centroid rate in the focused TOPS SLC data [Hz/s]
         carr: np.ndarray

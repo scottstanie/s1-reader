@@ -57,7 +57,7 @@ def parse_polynomial_element(elem, poly_name):
     half_c = 0.5 * isce3.core.speed_of_light
     r0 = half_c * float(elem.find('t0').text)
 
-    # NOTE Format of the Azimith FM rate polynomials has changed when IPF version was somewhere between 2.36 and 2.82
+    # NOTE Format of the Azimuth FM rate polynomials has changed when IPF version was somewhere between 2.36 and 2.82
     if elem.find(poly_name) is None:  # before the format change i.e. older IPF
         coeffs = [float(x.text) for x in elem[2:]]
     else:  # after the format change i.e. newer IPF
@@ -116,7 +116,7 @@ def doppler_poly1d_to_lut2d(doppler_poly1d, starting_slant_range,
     shape : tuple
         Tuples holding number of lines and samples of the burst.
     az_time_interval : float
-        Azimth time interval of the burst.
+        Azimuth time interval of the burst.
 
     Returns:
     ------
@@ -374,8 +374,8 @@ def burst_from_xml(annotation_path: str, orbit_path: str, tiff_path: str,
     #parse manifest.safe to retrieve IPF version
     manifest_path = os.path.dirname(annotation_path).replace('annotation','') + 'manifest.safe'
     with open_method(manifest_path, 'r') as f_manifest:
-        tree_manfest = ET.parse(f_manifest)
-        ipf_version = get_ipf_version(tree_manfest)
+        tree_manifest = ET.parse(f_manifest)
+        ipf_version = get_ipf_version(tree_manifest)
 
     #Load the Product annotation - for EAP calibration
     #with open_method(annotation_path, 'r') as f_lads:
@@ -385,7 +385,7 @@ def burst_from_xml(annotation_path: str, orbit_path: str, tiff_path: str,
     eap = is_eap_correction_necessary(ipf_version)
     if eap.magnitude_correction or eap.phase_correction:
 
-        #load the Calibraton annotation
+        #load the Calibration annotation
         calibration_annotation_path = annotation_path.replace('annotation/', 'annotation/calibration/calibration-')
         with open_method(calibration_annotation_path, 'r') as f_cads:
             tree_cads = ET.parse(f_cads)
@@ -636,7 +636,7 @@ def _burst_from_zip(zip_path: str, id_str: str, orbit_path: str):
     path : str
         Path to zip file.
     id_str: str
-        Identifcation of desired burst. Format: iw[swath_num]-slc-[pol]
+        Identification of desired burst. Format: iw[swath_num]-slc-[pol]
     orbit_path : str
         Path the orbit file.
 
@@ -677,7 +677,7 @@ def _burst_from_safe_dir(safe_dir_path: str, id_str: str, orbit_path: str):
     path : str
         Path to SAFE directory.
     id_str: str
-        Identifcation of desired burst. Format: iw[swath_num]-slc-[pol]
+        Identification of desired burst. Format: iw[swath_num]-slc-[pol]
     orbit_path : str
         Path the orbit file.
 

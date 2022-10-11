@@ -53,10 +53,10 @@ class AnnotationBase:
             val_out = float(elem_field.text)
 
         elif str_type == 'vector_int':
-            val_out = np.array([int(strin) for strin in elem_field.text.split()])
+            val_out = np.array([int(string) for string in elem_field.text.split()])
 
         elif str_type == 'vector_float':
-            val_out = np.array([float(strin) for strin in elem_field.text.split()])
+            val_out = np.array([float(string) for string in elem_field.text.split()])
 
         elif str_type == 'str':
             val_out = elem_field.text
@@ -139,7 +139,7 @@ class CalibrationAnnotation(AnnotationBase):
 
     @classmethod
     def from_et(cls, et_in=None):
-        '''Extracts the list of calibration informaton from etree from CADS'''
+        '''Extracts the list of calibration information from etree from CADS'''
         cls.xml_et = et_in
         cls.list_azimuth_time = cls._parse_vectorlist('calibrationVectorList', 'azimuthTime', 'datetime')
         cls.list_line = cls._parse_vectorlist('calibrationVectorList', 'line', 'scalar_int')
@@ -159,7 +159,7 @@ class NoiseAnnotation(AnnotationBase):
     '''Reader for Noise Annotation Data Set (NADS) for IW SLC'''
     # NOTE Schema of the NADS is slightly different before/after IPF version 2.90. Needs to be adaptive in accordance with the version.
     # The issue above was fixed in further implement of thermal noise correction.
-    # A separete PR regarding this will be submitted upon the acceptance of this code.
+    # A separate PR regarding this will be submitted upon the acceptance of this code.
     # in ISCE2 code: if float(self.IPFversion) < 2.90:
     # REF: .../isce2/components/isceobj/Sensor/GRD/Sentinel1.py
 
@@ -348,7 +348,7 @@ def closest_block_to_azimuth_time(vector_azimuth_time: np.ndarray,
 @dataclass
 class BurstNoise: #For thermal noise correction
     '''Noise correction information for Sentinel-1 burst'''
-    range_azimith_time: datetime.datetime = None
+    range_azimuth_time: datetime.datetime = None
     range_line: float = None
     range_pixel: np.ndarray = None
     range_lut: np.ndarray = None
@@ -384,7 +384,7 @@ class BurstNoise: #For thermal noise correction
         '''
 
         id_closest = closest_block_to_azimuth_time(noise_annotation.rg_list_azimuth_time, azimuth_time)
-        self.range_azimith_time = noise_annotation.rg_list_azimuth_time[id_closest]
+        self.range_azimuth_time = noise_annotation.rg_list_azimuth_time[id_closest]
         self.range_line = noise_annotation.rg_list_line[id_closest]
         self.range_pixel = noise_annotation.rg_list_pixel[id_closest]
         self.range_lut = noise_annotation.rg_list_noise_range_lut[id_closest]
@@ -448,7 +448,7 @@ class BurstCalibration:
         Parameters
         ----------
         calibration_annotation: CalibrationAnnotation
-            A subswath-wide calibraion information from CADS file
+            A subswath-wide calibration information from CADS file
         azimuth_time: datetime.datetime
             Azimuth time of the burst
 
@@ -484,7 +484,7 @@ class BurstEAP:
 
     #from AUX_CAL
     G_eap: np.ndarray #elevationAntennaPattern
-    delta_theta:float #elavationAngleIncrement
+    delta_theta:float #elevationAngleIncrement
 
     @classmethod
     def from_product_annotation_and_aux_cal(cls, product_annotation: ProductAnnotation, aux_cal: AuxCal, azimuth_time: datetime.datetime):
