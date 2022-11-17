@@ -1,2 +1,2 @@
 include src/s1reader/data/sentinel1_track_burst_id.txt
-recursive-include src/s1reader/data/aux_cal *.xml
+recursive-include src/s1reader/data/aux_cal *.zip
