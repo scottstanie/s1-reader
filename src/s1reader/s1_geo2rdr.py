@@ -2,7 +2,7 @@
 import argparse
 from os import fspath
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import isce3
 import numpy as np
@@ -11,7 +11,8 @@ from shapely.geometry import MultiPolygon, Point
 
 import s1reader
 
-def _get_height_from_dem(lon: float, lat: float, dem_file: str):
+
+def _get_height_from_dem(lon: float, lat: float, dem_file: str) -> float:
     """Get the height of the nearest pixel to (lon, lat) in the DEM file."""
     ds = gdal.Open(fspath(dem_file))
     gt = ds.GetGeoTransform()
@@ -21,7 +22,9 @@ def _get_height_from_dem(lon: float, lat: float, dem_file: str):
     return band.ReadAsArray(px, py, 1, 1).item()
 
 
-def s1geo2rdr(lon: float, lat: float, h: float, burst: s1reader.Sentinel1BurstSlc):
+def s1geo2rdr(
+    lon: float, lat: float, h: float, burst: s1reader.Sentinel1BurstSlc
+) -> np.ndarray:
     llh_rad = np.array([*np.radians([lon, lat]), h]).reshape((3, 1))
     return isce3.geometry.geo2rdr(
         llh_rad,
@@ -32,9 +35,20 @@ def s1geo2rdr(lon: float, lat: float, h: float, burst: s1reader.Sentinel1BurstSl
     )
 
 
+EXAMPLE = """
+Example usage:
+
+    # Get the azimuth time and range for a point in lon/lat
+    s1_geo2rdr -102.0 30.0 S1A_IW_SLC__1SDV_20220226T124745_20220226T124812_042084_050378_F69A.zip --orbit ~/orbits/ --dem dem.tif
+
+"""
+
+
 def get_cli_parser():
     parser = argparse.ArgumentParser(
-        description="Converts a point in lon/lat to azimuth time and range"
+        description="Converts a point in lon/lat to azimuth time and range",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EXAMPLE,
     )
     parser.add_argument("lon", type=float, help="longitude of point")
     parser.add_argument("lat", type=float, help="latitude of point")
@@ -95,7 +109,7 @@ def _get_overlapping_bursts(
     lat: float,
     orbit_dir: Optional[Path] = None,
     pol: str = "vv",
-):
+) -> List[s1reader.Sentinel1BurstSlc]:
     """Get the burst IDs that overlap with the given lon/lat point."""
     if orbit_dir is not None:
         orb_file = s1reader.get_orbit_file_from_dir(s1_file, orbit_dir=orbit_dir)
@@ -142,13 +156,7 @@ def main():
         az_idx = round((az_time - rg.sensing_start) / rg.az_time_interval)
         range_idx = round((range - rg.starting_range) / rg.range_pixel_spacing)
 
-        # print(f"burst: {burst.burst_id} at {burst.tiff_path}, az_idx: {az_idx}, range_idx: {range_idx}")
         print(f"{lon},{lat},{az_idx},{range_idx},{burst.burst_id},{burst.tiff_path}")
-
-        if args.outfile is not None:
-            buf = args.buffer
-            rows = slice(az_idx - buf, az_idx + buf + 1)
-            cols = slice(range_idx - buf, range_idx + buf + 1)
 
 
 if __name__ == "__main__":
