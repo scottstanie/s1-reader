@@ -1,5 +1,5 @@
 import datetime
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from typing import ClassVar
 
 import numpy as np
@@ -142,5 +142,7 @@ class S1BurstId:
         # bursts = [b for b in bursts if b.burst_id in burst_ids]
         if isinstance(other, str):
             return str(self) == other
+        elif isinstance(other, S1BurstId):
+            return astuple(self) == astuple(other)
         else:
-            return super().__eq__(other)
+            raise ValueError(f"Cannot compare to {other}")

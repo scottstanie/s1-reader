@@ -1,6 +1,7 @@
 import datetime
 import os
 import warnings
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -145,7 +146,7 @@ def burst_id_from_xml(annotation_path: str, orbit_path: str, open_method=open):
     return bursts
 
 
-def bursts_from_safe_dir(safe_dir_path: str, orbit_path: str) -> list[S1Burst]:
+def bursts_from_safe_dir(safe_path: str, orbit_path: str) -> list[S1Burst]:
     """Find S1Bursts in a Sentinel-1 SAFE structured directory/zipfile.
 
     Parameters:
@@ -160,13 +161,32 @@ def bursts_from_safe_dir(safe_dir_path: str, orbit_path: str) -> list[S1Burst]:
     bursts : list
         List of Sentinel1BurstSlc objects found in annotation XML.
     """
+    def _is_zip_annotation(path: str):
+        return path.split("/")[-2] == "annotation" and path.endswith(".xml")
 
     # find annotation file - subswath of interest
-    annotation_files = Path(f"{safe_dir_path}/annotation").glob("s1*-iw*-slc-*")
-
+    path = Path(safe_path)
     bursts = []
-    for f_annotation in annotation_files:
-        bursts.extend(burst_id_from_xml(str(f_annotation), orbit_path))
+    if path.suffix == ".zip":
+        with zipfile.ZipFile(path, "r") as z_file:
+            z_file_list = z_file.namelist()
+
+            # find annotation file - subswath of interest
+            annotation_files = [
+                f for f in z_file_list if _is_zip_annotation(f)
+            ]
+
+            for f_annotation in annotation_files:
+                bursts.extend(
+                    burst_id_from_xml(f_annotation, orbit_path, open_method=z_file.open)
+                )
+    elif path.is_dir():
+        annotation_files = (path / "annotation").glob("s1*-iw*-slc-*")
+
+        for f_annotation in annotation_files:
+            bursts.extend(burst_id_from_xml(str(f_annotation), orbit_path))
+    else:
+        raise ValueError(f"Unknown file type, not a .zip or dir: {safe_path}")
     return bursts
 
 
