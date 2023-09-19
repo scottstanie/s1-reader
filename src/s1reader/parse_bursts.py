@@ -54,26 +54,24 @@ def burst_id_from_xml(annotation_path: str, orbit_path: str, open_method=open):
     manifest_path = (
         os.path.dirname(annotation_path).replace("annotation", "") + "manifest.safe"
     )
-    with open_method(manifest_path, "r") as f_manifest:
-        tree_manifest = ET.parse(f_manifest)
-        # Parse out the start/end track to determine if we have an
-        # equator crossing (for the burst_id calculation).
-        start_track, end_track = get_start_end_track(tree_manifest)
+    tree_manifest = ET.parse(manifest_path)
+    # Parse out the start/end track to determine if we have an
+    # equator crossing (for the burst_id calculation).
+    start_track, end_track = get_start_end_track(tree_manifest)
 
     # Nearly all metadata loaded here is common to all bursts in annotation XML
-    with open_method(annotation_path, "r") as f:
-        tree = ET.parse(f)
+    tree = ET.parse(annotation_path)
 
-        image_info_element = tree.find("imageAnnotation/imageInformation")
-        ascending_node_time_annotation = as_datetime(
-            image_info_element.find("ascendingNodeTime").text
-        )
-        first_line_utc_time = as_datetime(
-            image_info_element.find("productFirstLineUtcTime").text
-        )
+    image_info_element = tree.find("imageAnnotation/imageInformation")
+    ascending_node_time_annotation = as_datetime(
+        image_info_element.find("ascendingNodeTime").text
+    )
+    first_line_utc_time = as_datetime(
+        image_info_element.find("productFirstLineUtcTime").text
+    )
 
-        # orbit_number = int(tree.find('adsHeader/absoluteOrbitNumber').text)
-        _, boundary_pts = get_burst_centers_and_boundaries(tree)
+    # orbit_number = int(tree.find('adsHeader/absoluteOrbitNumber').text)
+    _, boundary_pts = get_burst_centers_and_boundaries(tree)
 
     # find orbit state vectors in 'Data_Block/List_of_OSVs'
     if orbit_path:
