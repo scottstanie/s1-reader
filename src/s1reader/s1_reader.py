@@ -6,6 +6,7 @@ import os
 import warnings
 import lxml.etree as ET
 import zipfile
+from functools import cache
 from typing import Union
 
 from types import SimpleNamespace
@@ -531,6 +532,18 @@ def get_track_burst_num(track_burst_num_file: str = esa_track_burst_id_file):
     return track_burst_num
 
 
+@cache
+def _get_utc_z(orbit_state_vector_list):
+    utc_vec_all = []
+    pos_z_vec_all = []
+    for osv in orbit_state_vector_list:
+        utc_str = osv.find('UTC').text.split('=')[1]
+        utc_vec_all.append(datetime.datetime.fromisoformat(utc_str))
+        pos_z_vec_all.append(float(osv.find('Z').text))
+    utc_vec_all = np.array(utc_vec_all)
+    pos_z_vec_all = np.array(pos_z_vec_all)
+    return utc_vec_all, pos_z_vec_all
+
 def get_ascending_node_time_orbit(orbit_state_vector_list: ET,
                                   sensing_time: datetime.datetime,
                                   anx_time_annotation: datetime.datetime=None,
@@ -568,12 +581,21 @@ def get_ascending_node_time_orbit(orbit_state_vector_list: ET,
         search_length = datetime.timedelta(seconds=2 * T_ORBIT)
 
     # Load the OSVs
-    utc_vec_all = [datetime.datetime.fromisoformat(osv.find('UTC').text.replace('UTC=',''))
-                   for osv in orbit_state_vector_list]
-    utc_vec_all = np.array(utc_vec_all)
-    pos_z_vec_all = [float(osv.find('Z').text)
-                     for osv in orbit_state_vector_list]
-    pos_z_vec_all = np.array(pos_z_vec_all)
+    # utc_vec_all = []
+    # pos_z_vec_all = []
+    # for osv in orbit_state_vector_list:
+    #     utc_str = osv.find('UTC').text.split('=')[1]
+    #     utc_vec_all.append(datetime.datetime.fromisoformat(utc_str))
+    #     pos_z_vec_all.append(float(osv.find('Z').text))
+
+
+    # # utc_vec_all = [datetime.datetime.fromisoformat(osv.find('UTC').text.replace('UTC=',''))
+    # #                for osv in orbit_state_vector_list]
+    # utc_vec_all = np.array(utc_vec_all)
+    # # pos_z_vec_all = [float(osv.find('Z').text)
+    # #                  for osv in orbit_state_vector_list]
+    # pos_z_vec_all = np.array(pos_z_vec_all)
+    utc_vec_all, pos_z_vec_all = _get_utc_z(orbit_state_vector_list)
 
     # NOTE: tried to apply the same amount of pading in `get_burst_orbit` to
     # get as similar results as possible.
@@ -638,9 +660,8 @@ def get_ascending_node_time_orbit(orbit_state_vector_list: ET,
     return anx_time_orbit
 
 
-def get_osv_list_from_orbit(orbit_file: str | list,
-                            swath_start: datetime.datetime,
-                            swath_stop: datetime.datetime):
+@cache
+def get_osv_list_from_orbit(orbit_file: str | list):
     '''
     Get the list of orbit state vectors as ElementTree (ET) objects from the orbit file `orbit_file`
 
@@ -870,9 +891,7 @@ def burst_from_xml(annotation_path: str, orbit_path: str, tiff_path: str,
 
     # find orbit state vectors in 'Data_Block/List_of_OSVs'
     if orbit_path:
-        orbit_state_vector_list = get_osv_list_from_orbit(orbit_path,
-                                                          first_line_utc_time,
-                                                          last_line_utc_time)
+        orbit_state_vector_list = get_osv_list_from_orbit(orbit_path)
 
         # Calculate ascending node crossing time from orbit;
         # compare with the info from annotation
@@ -1014,6 +1033,8 @@ def burst_from_xml(annotation_path: str, orbit_path: str, tiff_path: str,
                                       extended_coeffs, burst_rfi_info, burst_misc_metadata)
 
     return bursts
+
+
 
 def _is_zip_annotation_xml(path: str, id_str: str) -> bool:
     ''' Check if path is annotation XMl and not calibration or rfi related

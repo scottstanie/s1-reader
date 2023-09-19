@@ -1,8 +1,10 @@
 import datetime
 from dataclasses import dataclass
 from typing import ClassVar
-from s1reader.s1_orbit import T_ORBIT
+
 import numpy as np
+
+from s1reader.s1_orbit import T_ORBIT
 
 
 @dataclass(frozen=True)
@@ -129,7 +131,9 @@ class S1BurstId:
 
     def __str__(self):
         # Form the unique JPL ID by combining track/burst/swath
-        return f"t{self.track_number:03d}_{self.esa_burst_id:06d}_{self.subswath.lower()}"
+        return (
+            f"t{self.track_number:03d}_{self.esa_burst_id:06d}_{self.subswath.lower()}"
+        )
 
     def __eq__(self, other) -> bool:
         # Allows for comparison with strings, as well as S1BurstId objects
