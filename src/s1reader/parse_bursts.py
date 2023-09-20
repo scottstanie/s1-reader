@@ -15,7 +15,6 @@ from s1reader.s1_reader import (
     ASCENDING_NODE_TIME_TOLERANCE_IN_SEC,
     as_datetime,
     get_ascending_node_time_orbit,
-    get_burst_centers_and_boundaries,
     get_osv_list_from_orbit,
     get_start_end_track,
 )
@@ -71,7 +70,7 @@ def burst_id_from_xml(annotation_path: str, orbit_path: str, open_method=open):
     )
 
     # orbit_number = int(tree.find('adsHeader/absoluteOrbitNumber').text)
-    _, boundary_pts = get_burst_centers_and_boundaries(tree)
+    boundary_polys = get_burst_boundaries(tree)
 
     # find orbit state vectors in 'Data_Block/List_of_OSVs'
     if orbit_path:
@@ -123,7 +122,7 @@ def burst_id_from_xml(annotation_path: str, orbit_path: str, open_method=open):
     burst_list_elements = tree.find("swathTiming/burstList")
 
     bursts = []
-    for burst_list_element, bnd in zip(burst_list_elements, boundary_pts):
+    for burst_list_element, poly in zip(burst_list_elements, boundary_polys):
         # Zero Doppler azimuth time of the first line of this burst
         sensing_start = as_datetime(burst_list_element.find("azimuthTime").text)
 
@@ -137,7 +136,7 @@ def burst_id_from_xml(annotation_path: str, orbit_path: str, open_method=open):
             S1Burst(
                 burst_id=burst_id,
                 sensing_start=sensing_start,
-                border=MultiPolygon(bnd),
+                border=poly,
             )
         )
 
@@ -198,8 +197,8 @@ def get_burst_boundaries(tree):
 
     Returns:
     --------
-    boundary_pts : MultiPolygon
-        List of burst boundaries as shapely Polygons
+    boundary_polys : list[MultiPolygon]
+        List of burst boundaries as shapely MultiPolygons
     """
     # find element tree
     grid_pt_list = tree.find("geolocationGrid/geolocationGridPointList")
@@ -217,14 +216,10 @@ def get_burst_boundaries(tree):
         lons[i] = float(grid_pt[5].text)
 
     unique_line_indices = np.unique(lines)
-    n_bursts = len(unique_line_indices) - 1
-    center_pts = [[]] * n_bursts
-    boundary_pts = [[]] * n_bursts
+    boundary_polys = []
 
     # zip lines numbers of bursts together and iterate
-    for i, (ln0, ln1) in enumerate(
-        zip(unique_line_indices[:-1], unique_line_indices[1:])
-    ):
+    for (ln0, ln1) in zip(unique_line_indices[:-1], unique_line_indices[1:]):
         # create masks for lines in current burst
         mask0 = lines == ln0
         mask1 = lines == ln1
@@ -235,58 +230,6 @@ def get_burst_boundaries(tree):
         burst_lats = np.concatenate((lats[mask0], lats[mask1][::-1]))
 
         poly = Polygon(zip(burst_lons, burst_lats))
-        boundary_pts[i] = MultiPolygon(check_dateline(poly))
+        boundary_polys.append(MultiPolygon(check_dateline(poly)))
 
-    return center_pts, boundary_pts
-
-
-def get_burst_boundaries(tree):
-    """Parse grid points list and get border.
-
-    Parameters:
-    -----------
-    tree : Element
-        Element containing geolocation grid points.
-
-    Returns:
-    --------
-    boundary_pts : MultiPolygon
-        List of burst boundaries as shapely Polygons
-    """
-    # find element tree
-    grid_pt_list = tree.find("geolocationGrid/geolocationGridPointList")
-
-    # read in all points
-    n_grid_pts = int(grid_pt_list.attrib["count"])
-    lines = np.empty(n_grid_pts)
-    pixels = np.empty(n_grid_pts)
-    lats = np.empty(n_grid_pts)
-    lons = np.empty(n_grid_pts)
-    for i, grid_pt in enumerate(grid_pt_list):
-        lines[i] = int(grid_pt[2].text)
-        pixels[i] = int(grid_pt[3].text)
-        lats[i] = float(grid_pt[4].text)
-        lons[i] = float(grid_pt[5].text)
-
-    unique_line_indices = np.unique(lines)
-    n_bursts = len(unique_line_indices) - 1
-    center_pts = [[]] * n_bursts
-    boundary_pts = [[]] * n_bursts
-
-    # zip lines numbers of bursts together and iterate
-    for i, (ln0, ln1) in enumerate(
-        zip(unique_line_indices[:-1], unique_line_indices[1:])
-    ):
-        # create masks for lines in current burst
-        mask0 = lines == ln0
-        mask1 = lines == ln1
-
-        # reverse order of 2nd set of points so plots of boundaries
-        # are not connected by a diagonal line
-        burst_lons = np.concatenate((lons[mask0], lons[mask1][::-1]))
-        burst_lats = np.concatenate((lats[mask0], lats[mask1][::-1]))
-
-        poly = Polygon(zip(burst_lons, burst_lats))
-        boundary_pts[i] = MultiPolygon(check_dateline(poly))
-
-    return center_pts, boundary_pts
+    return boundary_polys
