@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
+import numpy as np
 import datetime
 import glob
 import os
@@ -731,3 +733,172 @@ def _get_utc_time_from_osv(osv):
     utc_osv_string = osv.find('UTC').text.replace('UTC=','')
     datetime_utc = datetime.datetime.fromisoformat(utc_osv_string)
     return datetime_utc
+
+
+def read_orbit_elements(
+    annotation_xml_file: Path | str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # Parse the XML file
+    tree = ET.parse(annotation_xml_file)
+    root = tree.getroot()
+
+    # Find all orbit elements
+    orbits = root.findall('.//orbit')
+
+    times = []
+    positions = []
+    velocities = []
+
+    # Extract data from each orbit element
+    for orbit in orbits:
+        time_str = orbit.find('time').text
+        time = datetime.datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%S.%f')
+        times.append(time)
+
+        pos = orbit.find('position')
+        x = float(pos.find('x').text)
+        y = float(pos.find('y').text)
+        z = float(pos.find('z').text)
+        positions.append([x, y, z])
+
+        vel = orbit.find('velocity')
+        vx = float(vel.find('x').text)
+        vy = float(vel.find('y').text)
+        vz = float(vel.find('z').text)
+        velocities.append([vx, vy, vz])
+
+    return np.array(times),np.array(positions), np.array(velocities)
+
+
+def resample_orbit_data(
+    t: np.ndarray,
+    p: np.ndarray,
+    v: np.ndarray,
+    dt_seconds: float = 10
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Resample orbit data to have uniform time spacing.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Array of datetime objects.
+    p : np.ndarray
+        Array of position vectors, shape (n, 3).
+    v : np.ndarray
+        Array of velocity vectors, shape (n, 3).
+    dt_seconds : float, optional
+        Desired time step in seconds, by default 10.
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Resampled t, p, and v arrays.
+
+    Notes
+    -----
+    This function uses linear interpolation for resampling.
+    """
+    from datetime import timedelta
+    t_seconds = np.array([(ti - t[0]).total_seconds() for ti in t])
+
+    t_new = np.arange(t_seconds[0], t_seconds[-1] + dt_seconds, dt_seconds)
+
+    p_new = np.array([np.interp(t_new, t_seconds, p[:, i]) for i in range(3)]).T
+    v_new = np.array([np.interp(t_new, t_seconds, v[:, i]) for i in range(3)]).T
+
+    t_new_datetime = np.array([t[0] + timedelta(seconds=float(ts)) for ts in t_new])
+
+    return t_new_datetime, p_new, v_new
+
+def create_isce3_orbit(
+    t: np.ndarray,
+    p: np.ndarray,
+    v: np.ndarray
+):
+    """
+    Create an ISCE3 orbit object from time, position, and velocity arrays.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Array of datetime objects.
+    p : np.ndarray
+        Array of position vectors, shape (n, 3).
+    v : np.ndarray
+        Array of velocity vectors, shape (n, 3).
+
+    Returns
+    -------
+    isce3.core.Orbit
+        ISCE3 Orbit object.
+
+    Raises
+    ------
+    ValueError
+        If the input arrays have inconsistent lengths.
+    """
+    import isce3
+    if not (len(t) == len(p) == len(v)):
+        raise ValueError("Input arrays must have the same length.")
+
+    orbit_svs = [
+        isce3.core.StateVector(isce3.core.DateTime(tt), pp, vv)
+        for tt, pp, vv in zip(t, p, v)
+    ]
+
+    return isce3.core.Orbit(orbit_svs, isce3.core.DateTime(t[0]))
+
+
+def resample_orbit_data_hermite(
+    t: np.ndarray,
+    p: np.ndarray,
+    v: np.ndarray,
+    dt_seconds: float = 10
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Resample orbit data to have uniform time spacing using Hermite interpolation.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Array of datetime objects.
+    p : np.ndarray
+        Array of position vectors, shape (n, 3).
+    v : np.ndarray
+        Array of velocity vectors, shape (n, 3).
+    dt_seconds : float, optional
+        Desired time step in seconds, by default 10.
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray, np.ndarray]
+        Resampled t, p, and v arrays.
+
+    Notes
+    -----
+    This function uses Cubic Hermite Spline interpolation, which ensures
+    that both position and velocity are continuous and smooth.
+    """
+    from scipy.interpolate import CubicHermiteSpline
+    from datetime import timedelta
+    # Convert datetime array to seconds since first epoch
+    t_seconds = np.array([(ti - t[0]).total_seconds() for ti in t])
+
+    # Create new uniform time array
+    t_new = np.arange(t_seconds[0], t_seconds[-1] + dt_seconds, dt_seconds)
+
+    # Initialize arrays for new position and velocity
+    p_new = np.zeros((len(t_new), 3))
+    v_new = np.zeros((len(t_new), 3))
+
+    # Interpolate each dimension separately
+    for i in range(3):
+        spline = CubicHermiteSpline(t_seconds, p[:, i], v[:, i])
+        p_new[:, i] = spline(t_new)
+        v_new[:, i] = spline.derivative()(t_new)
+
+    # Convert new time array back to datetime objects
+    t_new_datetime = np.array([t[0] + timedelta(seconds=float(ts)) for ts in t_new])
+
+    return t_new_datetime, p_new, v_new
