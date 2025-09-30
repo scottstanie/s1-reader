@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rfi>
+  <adsHeader>
+    <missionId>S1C</missionId>
+    <productType>SLC</productType>
+    <polarisation>VH</polarisation>
+    <mode>S3</mode>
+    <swath>S3</swath>
+    <startTime>2025-08-09T04:41:36.791272</startTime>
+    <stopTime>2025-08-09T04:41:57.138747</stopTime>
+    <absoluteOrbitNumber>3591</absoluteOrbitNumber>
+    <missionDataTakeId>29445</missionDataTakeId>
+    <imageNumber>001</imageNumber>
+  </adsHeader>
+  <rfiMitigationApplied>None</rfiMitigationApplied>
+</rfi>

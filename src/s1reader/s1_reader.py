@@ -6,6 +6,7 @@ import os
 import warnings
 import lxml.etree as ET
 import zipfile
+from pathlib import Path
 from typing import Union
 
 from types import SimpleNamespace
@@ -250,12 +251,14 @@ def get_burst_centers_and_boundaries(tree, num_bursts=None):
     num_bursts: int or None
         Expected number of bursts in the subswath.
         To check if the # of polygon is the same as the parsed polygons.
-        When it's None, the number of burst is the same as # polygons found in this function.
+        When it's None:
+          - For stripmap mode (no bursts), creates a single boundary/center
+          - For burst mode, uses # polygons found in the geolocation grid
 
     Returns
     -------
     center_pts : list
-        List of burst centroids ass shapely Points
+        List of burst centroids as shapely Points
     boundary_pts : list
         List of burst boundaries as shapely Polygons
     """
@@ -276,6 +279,28 @@ def get_burst_centers_and_boundaries(tree, num_bursts=None):
 
     unique_line_indices = np.unique(lines)
 
+    # Stripmap mode detection: if num_bursts is explicitly None and
+    # there are grid points, treat as single swath
+    # Check if this looks like stripmap (many line indices, no burst structure)
+    if num_bursts is None and len(unique_line_indices) > 10:
+        # Stripmap mode: use first and last lines to create single boundary
+        first_line = unique_line_indices[0]
+        last_line = unique_line_indices[-1]
+
+        mask_first = lines == first_line
+        mask_last = lines == last_line
+
+        # Create boundary from first and last lines
+        swath_lons = np.concatenate((lons[mask_first], lons[mask_last][::-1]))
+        swath_lats = np.concatenate((lats[mask_first], lats[mask_last][::-1]))
+
+        center_pt = calculate_centroid(swath_lons, swath_lats)
+        poly = shapely.geometry.Polygon(zip(swath_lons, swath_lats))
+        boundary = check_dateline(poly)
+
+        return [center_pt], [boundary]
+
+    # Burst mode: process as before
     if num_bursts is None:
         num_bursts = len(unique_line_indices) - 1
     n_bursts = len(unique_line_indices) - 1
@@ -589,6 +614,58 @@ def get_track_burst_num(track_burst_num_file: str = esa_track_burst_id_file):
     return track_burst_num
 
 
+def detect_mode(annotation_path: str) -> str:
+    """Detect Sentinel-1 acquisition mode from annotation XML or filename.
+
+    Parameters
+    ----------
+    annotation_path : str
+        Path to annotation XML file.
+
+    Returns
+    -------
+    mode : str
+        Acquisition mode: 'IW', 'EW', 'SM', or 'WV'
+    """
+    # First try to detect from filename pattern
+    filename = os.path.basename(annotation_path).lower()
+    if "-iw" in filename:
+        return "IW"
+    elif "-ew" in filename:
+        return "EW"
+    elif (
+        "-s1-" in filename
+        or "-s2-" in filename
+        or "-s3-" in filename
+        or "-s4-" in filename
+        or "-s5-" in filename
+        or "-s6-" in filename
+    ):
+        return "SM"
+    elif "-wv" in filename:
+        return "WV"
+
+    # If not found in filename, parse XML (for non-standard paths)
+    try:
+        tree = ET.parse(annotation_path)
+        mode_elem = tree.find("adsHeader/mode")
+        if mode_elem is not None:
+            mode_text = mode_elem.text.upper()
+            if mode_text.startswith("IW"):
+                return "IW"
+            elif mode_text.startswith("EW"):
+                return "EW"
+            elif mode_text.startswith("S"):
+                return "SM"
+            elif mode_text.startswith("WV"):
+                return "WV"
+    except Exception:
+        pass
+
+    # Default to IW for backward compatibility
+    return "IW"
+
+
 def get_ascending_node_time_orbit(
     orbit_state_vector_list: ET,
     sensing_time: datetime.datetime,
@@ -736,7 +813,7 @@ def get_osv_list_from_orbit(
     orbit_state_vector_list: ET
         Orbit state vector list
     """
-    if isinstance(orbit_file, str):
+    if isinstance(orbit_file, (Path, str)):
         orbit_tree = ET.parse(orbit_file)
         orbit_state_vector_list = orbit_tree.find("Data_Block/List_of_OSVs")
         return orbit_state_vector_list
@@ -783,6 +860,8 @@ def burst_from_xml(
 ):
     """Parse bursts in Sentinel-1 annotation XML.
 
+    Supports both IW/EW burst mode and SM (stripmap) mode.
+
     Parameters:
     -----------
     annotation_path : str
@@ -793,7 +872,9 @@ def burst_from_xml(
     tiff_path : str
         Path to tiff file holding Sentinel-1 SLCs.
     iw2_annotation_path : str
-        Path to Sentinel-1 annotation XML file of IW2 subswath.
+        Path to reference annotation XML file for mid-range calculation.
+        For IW mode: IW2 subswath annotation
+        For SM mode: Can be the same as annotation_path (uses own swath)
     open_method : function
         Function used to open annotation file.
     flag_apply_eqp: bool
@@ -803,6 +884,7 @@ def burst_from_xml(
     --------
     bursts : list
         List of Sentinel1BurstSlc objects found in annotation XML.
+        For SM mode, returns a list with a single object.
     """
     _, tail = os.path.split(annotation_path)
     platform_id, subswath, _, pol = [x.upper() for x in tail.split("-")[:4]]
@@ -1029,10 +1111,153 @@ def burst_from_xml(
         ascending_node_time = ascending_node_time_annotation
         orbit_state_vector_list = []
 
-    # load individual burst
-    half_burst_in_seconds = 0.5 * (n_lines - 1) * azimuth_time_interval
+    # Check if this is stripmap mode (no bursts) or burst mode (IW/EW)
     burst_list_elements = tree.find("swathTiming/burstList")
     n_bursts = int(burst_list_elements.attrib["count"])
+
+    # Stripmap mode: no bursts (count=0), treat entire swath as single "burst"
+    if n_bursts == 0:
+        # For stripmap, get image dimensions from imageInformation
+        n_lines = int(tree.find("imageAnnotation/imageInformation/numberOfLines").text)
+        n_samples = int(
+            tree.find("imageAnnotation/imageInformation/numberOfSamples").text
+        )
+
+        # Create single burst representing entire stripmap swath
+        center_pts, boundary_pts = get_burst_centers_and_boundaries(
+            tree,
+            num_bursts=None,  # None signals stripmap mode
+        )
+
+        # Create single "burst" object for stripmap
+        sensing_start = first_line_utc_time
+        sensing_duration = datetime.timedelta(seconds=n_lines * azimuth_time_interval)
+        azimuth_time_mid = sensing_start + datetime.timedelta(
+            seconds=0.5 * (n_lines - 1) * azimuth_time_interval
+        )
+
+        # choose nearest azimuth FM rate
+        az_fm_rate = get_nearest_polynomial(azimuth_time_mid, az_fm_rate_list)
+
+        # choose nearest doppler
+        poly1d = get_nearest_polynomial(azimuth_time_mid, doppler_list)
+        lut2d = doppler_poly1d_to_lut2d(
+            poly1d,
+            starting_range,
+            range_pxl_spacing,
+            (n_lines, n_samples),
+            azimuth_time_interval,
+        )
+        doppler = Doppler(poly1d, lut2d)
+
+        if len(orbit_state_vector_list) > 0:
+            orbit = get_burst_orbit(
+                sensing_start, sensing_start + sensing_duration, orbit_state_vector_list
+            )
+        else:
+            orbit = None
+
+        # For stripmap, all samples are valid (no burst windowing)
+        first_valid_line = 0
+        n_valid_lines = n_lines
+        first_valid_sample = 0
+        last_sample = n_samples - 1
+
+        # Extract calibration, noise, and EAP info
+        if calibration_annotation is None:
+            burst_calibration = None
+        else:
+            burst_calibration = BurstCalibration.from_calibration_annotation(
+                calibration_annotation, sensing_start
+            )
+
+        if noise_annotation is None:
+            burst_noise = None
+        else:
+            burst_noise = BurstNoise.from_noise_annotation(
+                noise_annotation,
+                sensing_start,
+                0,  # line_from
+                n_lines - 1,  # line_to
+                ipf_version,
+            )
+
+        if aux_cal_subswath is None:
+            burst_aux_cal = None
+        else:
+            burst_aux_cal = BurstEAP.from_product_annotation_and_aux_cal(
+                product_annotation, aux_cal_subswath, sensing_start
+            )
+
+        # Extended FM and DC coefficient information
+        extended_coeffs = BurstExtendedCoeffs.from_polynomial_lists(
+            az_fm_rate_list,
+            doppler_list,
+            sensing_start,
+            sensing_start + sensing_duration,
+        )
+
+        # RFI information
+        if burst_rfi_info_swath is None:
+            burst_rfi_info = None
+        else:
+            burst_rfi_info = burst_rfi_info_swath.extract_by_aztime(sensing_start)
+
+        # Miscellaneous burst metadata
+        burst_misc_metadata = swath_misc_metadata.extract_by_aztime(sensing_start)
+
+        # For stripmap, burst_id is None (no ESA burst ID scheme for stripmap)
+        burst_id = None
+
+        stripmap_burst = Sentinel1BurstSlc(
+            ipf_version,
+            sensing_start,
+            radar_freq,
+            wavelength,
+            azimuth_steer_rate,
+            average_azimuth_pixel_spacing,
+            azimuth_time_interval,
+            slant_range_time,
+            starting_range,
+            iw2_mid_range,
+            range_sampling_rate,
+            range_pxl_spacing,
+            (n_lines, n_samples),
+            az_fm_rate,
+            doppler,
+            rng_processing_bandwidth,
+            pol,
+            burst_id,
+            platform_id,
+            safe_filename,
+            center_pts[0],
+            boundary_pts[0],
+            orbit,
+            orbit_direction,
+            orbit_number,
+            tiff_path,
+            0,  # burst index (always 0 for stripmap)
+            first_valid_sample,
+            last_sample,
+            first_valid_line,
+            n_valid_lines - 1,  # last_line
+            range_window_type,
+            range_window_coeff,
+            rank,
+            prf_raw_data,
+            range_chirp_ramp_rate,
+            burst_calibration,
+            burst_noise,
+            burst_aux_cal,
+            extended_coeffs,
+            burst_rfi_info,
+            burst_misc_metadata,
+        )
+
+        return [stripmap_burst]
+
+    # IW/EW burst mode: iterate through bursts
+    half_burst_in_seconds = 0.5 * (n_lines - 1) * azimuth_time_interval
     bursts = [[]] * n_bursts
 
     center_pts, boundary_pts = get_burst_centers_and_boundaries(
@@ -1221,6 +1446,10 @@ def load_bursts(
 ):
     """Find bursts in a Sentinel-1 zip file or a SAFE structured directory.
 
+    Supports both IW/EW burst mode and SM (stripmap) mode acquisitions.
+    For stripmap mode, returns a list with a single Sentinel1BurstSlc object
+    representing the entire swath.
+
     Parameters:
     -----------
     path : str
@@ -1228,7 +1457,9 @@ def load_bursts(
     orbit_path : str
         Path the orbit file.
     swath_num : int
-        Integer of subswath of desired burst. {1, 2, 3}
+        Integer of subswath/beam number.
+        For IW/EW modes: {1, 2, 3}
+        For SM mode: {1, 2, 3, 4, 5, 6} depending on beam
     pol : str
         Polarization of desired burst. {hh, vv, hv, vh}
     burst_ids : list[str] or list[S1BurstId]
@@ -1236,6 +1467,7 @@ def load_bursts(
         returned. Default of None returns all bursts.
         If not all burst IDs are found, a list containing found bursts will be
         returned (empty list if none are found).
+        Only applicable to IW/EW modes; ignored for SM mode.
     flag_apply_eap: bool
         Turn on/off EAP related features (AUX_CAL loader)
 
@@ -1243,9 +1475,12 @@ def load_bursts(
     --------
     bursts : list
         List of Sentinel1BurstSlc objects found in annotation XML.
+        For IW/EW modes: multiple bursts per swath
+        For SM mode: single object representing entire swath
     """
-    if swath_num < 1 or swath_num > 3:
-        raise ValueError("swath_num not <1 or >3")
+    # Validate swath_num (allow up to 6 for stripmap beams)
+    if swath_num < 1 or swath_num > 6:
+        raise ValueError("swath_num must be between 1 and 6")
 
     if burst_ids is None:
         burst_ids = []
@@ -1260,7 +1495,36 @@ def load_bursts(
     if pol not in pols:
         raise ValueError(f"polarization not in {pols}")
 
-    id_str = f"iw{swath_num}-slc-{pol}"
+    # Detect mode from path to construct appropriate id_str
+    # For zip files, need to look inside; for directories, check annotation files
+    if os.path.isdir(path):
+        # Check annotation directory for mode
+        annotation_dir = os.path.join(path, "annotation")
+        if os.path.exists(annotation_dir):
+            annotation_files = os.listdir(annotation_dir)
+            sample_file = next(
+                (f for f in annotation_files if f.endswith(".xml")), None
+            )
+            if sample_file:
+                mode = detect_mode(os.path.join(annotation_dir, sample_file))
+            else:
+                mode = "IW"  # default
+        else:
+            mode = "IW"  # default
+    else:
+        # For zip files, assume IW initially (will be detected in _burst_from_zip)
+        mode = "IW"
+
+    # Construct id_str based on mode
+    if mode == "SM":
+        id_str = f"s{swath_num}-slc-{pol}"
+    elif mode == "EW":
+        id_str = f"ew{swath_num}-slc-{pol}"
+    else:  # IW or unknown (default to IW)
+        id_str = f"iw{swath_num}-slc-{pol}"
+        # Validate swath_num for IW/EW
+        if swath_num > 3:
+            raise ValueError("swath_num must be 1, 2, or 3 for IW/EW modes")
 
     if not os.path.exists(path):
         raise FileNotFoundError(f"{path} not found")
@@ -1355,7 +1619,8 @@ def _burst_from_safe_dir(
     path : str
         Path to SAFE directory.
     id_str: str
-        Identification of desired burst. Format: iw[swath_num]-slc-[pol]
+        Identification of desired burst.
+        Format: iw[swath_num]-slc-[pol] or s[beam_num]-slc-[pol]
     orbit_path : str
         Path the orbit file.
     flag_apply_eap: bool
@@ -1374,12 +1639,31 @@ def _burst_from_safe_dir(
         raise ValueError(f"burst {id_str} not in SAFE: {safe_dir_path}")
     f_annotation = f"{safe_dir_path}/annotation/{f_annotation[0]}"
 
-    # find annotation file - IW2
-    iw2_id_str = f"iw2-{id_str[4:]}"
-    iw2_f_annotation = [f for f in annotation_list if iw2_id_str in f]
-    if not iw2_f_annotation:
-        raise ValueError(f"burst {iw2_id_str} not in SAFE: {safe_dir_path}")
-    iw2_f_annotation = f"{safe_dir_path}/annotation/{iw2_f_annotation[0]}"
+    # Determine reference annotation for mid-range calculation
+    # For IW mode: use IW2; for stripmap: use the current swath
+    if id_str.startswith("iw"):
+        # IW mode: find IW2 annotation
+        iw2_id_str = f"iw2-{id_str[4:]}"
+        iw2_f_annotation = [f for f in annotation_list if iw2_id_str in f]
+        if not iw2_f_annotation:
+            raise ValueError(f"burst {iw2_id_str} not in SAFE: {safe_dir_path}")
+        reference_annotation = f"{safe_dir_path}/annotation/{iw2_f_annotation[0]}"
+    elif id_str.startswith("ew"):
+        # EW mode: use EW2 or EW3 as reference (mid swath)
+        ew2_id_str = f"ew2-{id_str[4:]}"
+        ew2_f_annotation = [f for f in annotation_list if ew2_id_str in f]
+        if ew2_f_annotation:
+            reference_annotation = f"{safe_dir_path}/annotation/{ew2_f_annotation[0]}"
+        else:
+            # Fallback to EW3
+            ew3_id_str = f"ew3-{id_str[4:]}"
+            ew3_f_annotation = [f for f in annotation_list if ew3_id_str in f]
+            if not ew3_f_annotation:
+                raise ValueError(f"EW reference swath not in SAFE: {safe_dir_path}")
+            reference_annotation = f"{safe_dir_path}/annotation/{ew3_f_annotation[0]}"
+    else:
+        # Stripmap mode: use the current swath as reference
+        reference_annotation = f_annotation
 
     # find tiff file if measurement directory found
     if os.path.isdir(f"{safe_dir_path}/measurement"):
@@ -1395,7 +1679,7 @@ def _burst_from_safe_dir(
         f_annotation,
         orbit_path,
         f_tiff,
-        iw2_f_annotation,
+        reference_annotation,
         flag_apply_eap=flag_apply_eap,
     )
     return bursts

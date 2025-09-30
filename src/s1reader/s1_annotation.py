@@ -342,24 +342,39 @@ class NoiseAnnotation(AnnotationBase):
             cls.rg_list_noise_range_lut = cls._parse_vectorlist(
                 "noiseRangeVectorList", "noiseRangeLut", "vector_float"
             )
-            cls.az_first_azimuth_line = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "firstAzimuthLine", "scalar_int"
-            )[0]
-            cls.az_first_range_sample = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "firstRangeSample", "scalar_int"
-            )[0]
-            cls.az_last_azimuth_line = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "lastAzimuthLine", "scalar_int"
-            )[0]
-            cls.az_last_range_sample = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "lastRangeSample", "scalar_int"
-            )[0]
-            cls.az_line = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "line", "vector_int"
-            )[0]
-            cls.az_noise_azimuth_lut = cls._parse_vectorlist(
-                "noiseAzimuthVectorList", "noiseAzimuthLut", "vector_float"
-            )[0]
+
+            # Check if azimuth noise vectors exist (may be empty for stripmap)
+            az_vector_list = cls.xml_et.find("noiseAzimuthVectorList")
+            if (
+                az_vector_list is not None
+                and int(az_vector_list.attrib.get("count", 0)) > 0
+            ):
+                cls.az_first_azimuth_line = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "firstAzimuthLine", "scalar_int"
+                )[0]
+                cls.az_first_range_sample = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "firstRangeSample", "scalar_int"
+                )[0]
+                cls.az_last_azimuth_line = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "lastAzimuthLine", "scalar_int"
+                )[0]
+                cls.az_last_range_sample = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "lastRangeSample", "scalar_int"
+                )[0]
+                cls.az_line = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "line", "vector_int"
+                )[0]
+                cls.az_noise_azimuth_lut = cls._parse_vectorlist(
+                    "noiseAzimuthVectorList", "noiseAzimuthLut", "vector_float"
+                )[0]
+            else:
+                # Stripmap or legacy: no azimuth noise vectors
+                cls.az_first_azimuth_line = None
+                cls.az_first_range_sample = None
+                cls.az_last_azimuth_line = None
+                cls.az_last_range_sample = None
+                cls.az_line = None
+                cls.az_noise_azimuth_lut = None
 
         return cls
 
@@ -653,6 +668,12 @@ class SwathRfiInfo:
 
         header_rfi = et_rfi.find("rfiBurstReportList")
         if header_rfi is None:
+            # Stripmap mode doesn't have rfiBurstReportList (no bursts)
+            # Check if this is stripmap by looking for rfiMitigationApplied instead
+            rfi_mitigation_applied = et_rfi.find("rfiMitigationApplied")
+            if rfi_mitigation_applied is not None:
+                # Stripmap mode: return None (no burst-level RFI info)
+                return None
             raise ValueError("Cannot locate `rfiBurstReportList` in the RFI annotation")
 
         # Start to load RFI information
@@ -849,7 +870,10 @@ class BurstNoise:
         azimuth_last_azimuth_line = noise_annotation.az_last_azimuth_line
         azimuth_last_range_sample = noise_annotation.az_last_range_sample
 
-        if ipf_version >= min_ipf_version_az_noise_vector:
+        if (
+            ipf_version >= min_ipf_version_az_noise_vector
+            and noise_annotation.az_line is not None
+        ):
             # Azimuth noise LUT exists - crop to the extent of the burst
             id_top = np.argmin(np.abs(noise_annotation.az_line - line_from))
             id_bottom = np.argmin(np.abs(noise_annotation.az_line - line_to))
