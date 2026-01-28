@@ -1115,8 +1115,14 @@ def burst_from_xml(
     burst_list_elements = tree.find("swathTiming/burstList")
     n_bursts = int(burst_list_elements.attrib["count"])
 
-    # Stripmap mode: no bursts (count=0), treat entire swath as single "burst"
+    # Handle n_bursts == 0:
+    # - For IW/EW mode: this swath has no data, return empty list
+    # - For SM mode: treat entire swath as single "burst"
     if n_bursts == 0:
+        # IW/EW mode with empty swath (e.g., from safe2stack single-burst products)
+        if subswath.startswith("IW") or subswath.startswith("EW"):
+            return []
+        # Actual stripmap mode: treat entire swath as single "burst"
         # For stripmap, get image dimensions from imageInformation
         n_lines = int(tree.find("imageAnnotation/imageInformation/numberOfLines").text)
         n_samples = int(
